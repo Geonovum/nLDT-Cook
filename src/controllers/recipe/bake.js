@@ -1,5 +1,5 @@
 import { join } from "path";
-import { runRecipe } from "../../models/recipe/bake.js";
+import { runRecipe, serviceUrlFromRequest } from "../../models/recipe/bake.js";
 import { ExecutionError, sendExecutionError } from "../../engine/executionError.js";
 
 export async function get(req, res) {
@@ -124,7 +124,11 @@ export async function post(req, res) {
 
   const engine = req.app.locals.engine;
 
-  await runRecipe(recipe, ingredients, engine, function (err, content) {
+  await runRecipe(
+    recipe,
+    ingredients,
+    engine,
+    function (err, content) {
     if (err) {
       sendExecutionError(res, err);
       return;
@@ -162,5 +166,7 @@ export async function post(req, res) {
     {
           res.status(200).json(content);
     }
-  });
+  },
+    { serviceUrl: serviceUrlFromRequest(req) },
+  );
 }

@@ -28,23 +28,26 @@ export class ProcessClient {
     if (mode === "async")
       headers["Prefer"] = "respond-async";
 
-    // The process server calls subscriber URIs as given. Bind :jobId to an id
-    // this cook is waiting on, and listen before the request so a fast callback
-    // is not missed.
+    // A subscriber is notified by the process for both sync and async execution.
+    // Bind :jobId before the request. Only async execution waits on that callback;
+    // sync execution uses the HTTP response and the process still calls the URLs.
     let correlationId;
     let waiter;
-    if (mode === "async" && body.subscriber) {
+    if (body.subscriber) {
       correlationId = randomUUID();
-      if (!bindSubscriberJobId(body.subscriber, correlationId)) {
-        throw new ExecutionError({
-          httpCode: 400,
-          code: "invalid-subscriber",
-          description:
-            "Async subscriber URIs must include a :jobId placeholder so the callback can be matched to this job.",
-        });
+      const bound = bindSubscriberJobId(body.subscriber, correlationId);
+      if (mode === "async") {
+        if (!bound) {
+          throw new ExecutionError({
+            httpCode: 400,
+            code: "invalid-subscriber",
+            description:
+              "Async subscriber URIs must include a :jobId placeholder so the callback can be matched to this job.",
+          });
+        }
+        waiter = callbackRegistry.waitFor(correlationId);
+        waiter.catch(() => {});
       }
-      waiter = callbackRegistry.waitFor(correlationId);
-      waiter.catch(() => {});
     }
 
     let response;

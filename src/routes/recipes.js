@@ -11,7 +11,7 @@ import { post as postRecipe, get as getRecipe } from "../controllers/recipe/bake
  */
 const router = express.Router();
 
-router.post("/bake", asyncHandler(postRecipe));
+router.post("/execute", asyncHandler(postRecipe));
 
 router.get("/recipes/:recipe", asyncHandler(getRecipe));
 

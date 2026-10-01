@@ -33,15 +33,80 @@ function changeValue(obj, ingredients) {
   }
 }
 
-export async function runRecipe(recipe, ingredients, engine, callback) {
+export function serviceUrlFromRequest(req) {
+  const forwarded = req.headers["x-forwarded-proto"];
+  const proto =
+    (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : "") ||
+    req.protocol ||
+    "http";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return `${proto}://${host}${req.baseUrl || ""}`;
+}
+
+const SUBSCRIBER_URIS = ["successUri", "inProgressUri", "failedUri", "successUrl"];
+
+function applySubscriberPlaceholders(subscriber, context) {
+  if (!subscriber || typeof subscriber !== "object") return;
+  const serviceUrl = (context.serviceUrl || "").replace(/\/$/, "");
+  const recipeId = encodeURIComponent(context.recipeId || "recipe");
+  for (const key of SUBSCRIBER_URIS) {
+    if (typeof subscriber[key] !== "string") continue;
+    subscriber[key] = subscriber[key]
+      .replaceAll(":serviceUrl", serviceUrl)
+      .replaceAll(":recipeId", recipeId);
+  }
+}
+
+/** POSTs to a processing subscriber. Sync and async executions both notify. */
+async function callSubscriber(subscriber, type, payload) {
+  const key = {
+    inProgress: "inProgressUri",
+    success: "successUri",
+    failed: "failedUri",
+  }[type];
+  const uri = subscriber?.[key];
+  if (typeof uri !== "string" || !uri) return;
+
+  console.log(`Calling subscriber ${type}: ${uri}`);
+  try {
+    const response = await fetch(uri, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      console.warn(
+        `Subscriber ${type} ${uri} returned ${response.status} ${detail.slice(0, 300)}`,
+      );
+      return;
+    }
+    await response.text().catch(() => "");
+  } catch (err) {
+    console.warn(
+      `Subscriber ${type} ${uri} failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+export async function runRecipe(recipe, ingredients, engine, callback, context = {}) {
   console.log(`Recipe Id ${recipe.id}`);
   console.log(`Title ${recipe.title}`);
   console.log(`Description ${recipe.description}`);
 
+  const subscriberContext = {
+    serviceUrl: context.serviceUrl || "",
+    recipeId: recipe.id || "recipe",
+  };
+
   // substitute ingredients in the recipe
   for (const process of recipe.processing) {
+    applySubscriberPlaceholders(process.subscriber, subscriberContext);
     for (const node of process.nodes) {
       changeValue(node, ingredients);
+      applySubscriberPlaceholders(node.body?.subscriber, subscriberContext);
     }
   }
 
@@ -54,6 +119,12 @@ export async function runRecipe(recipe, ingredients, engine, callback) {
     console.log(`Title ${process.title}`);
     console.log(`Description ${process.description}`);
     console.log("-".repeat(50));
+
+    await callSubscriber(process.subscriber, "inProgress", {
+      id: recipe.id,
+      processing: process.id,
+      status: "running",
+    });
 
     // Execute the process and store the results
     let results;
@@ -75,11 +146,26 @@ export async function runRecipe(recipe, ingredients, engine, callback) {
               processTitle: err?.processTitle,
             });
       error.processing = process.id;
+      await callSubscriber(process.subscriber, "failed", {
+        id: recipe.id,
+        processing: process.id,
+        status: "failed",
+        code: error.code,
+        description: error.description,
+        node: error.nodeId,
+      });
       return callback(error);
     }
 
     // Store the results in the content object using the process ID as the key
     content[process.id] = results.terminalResults;
+
+    await callSubscriber(process.subscriber, "success", {
+      id: recipe.id,
+      processing: process.id,
+      status: "successful",
+      results: results.terminalResults,
+    });
 
     console.log("=".repeat(50));
     console.log("All calculations completed successfully!\n");

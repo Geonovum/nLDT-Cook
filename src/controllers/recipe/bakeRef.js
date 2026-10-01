@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 
-import { runRecipe } from "../../models/recipe/bake.js";
+import { runRecipe, serviceUrlFromRequest } from "../../models/recipe/bake.js";
 import { sendExecutionError } from "../../engine/executionError.js";
 
 /**
@@ -71,5 +71,5 @@ export async function post(req, res) {
     }
     
     res.status(200).json(content);
-  });
+  }, { serviceUrl: serviceUrlFromRequest(req) });
 }
