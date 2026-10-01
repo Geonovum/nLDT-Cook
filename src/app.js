@@ -134,3 +134,22 @@ app.use((req, res) => {
     .status(405)
     .json({ code: "Method Not Allowed", description: "Not allowed" });
 });
+
+// JSON error handler. Keeps process and recipe failures out of the HTML stack page.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+
+  const status = Number(err.httpCode || err.status || err.statusCode) || 500;
+  const safeStatus = status >= 400 && status < 600 ? status : 500;
+
+  if (safeStatus >= 500) console.error(err);
+  else console.warn(err.description || err.message);
+
+  res.status(safeStatus).json({
+    code:
+      err.code ||
+      (safeStatus >= 500 ? "Internal Server Error" : "Bad Request"),
+    description:
+      err.description || err.message || "An unexpected error occurred.",
+  });
+});

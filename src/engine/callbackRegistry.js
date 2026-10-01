@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { ExecutionError } from "./executionError.js";
 
 /**
  * Registry that pairs async job IDs with Promises. Callers can wait for
@@ -16,7 +17,15 @@ class CallbackRegistry {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         console.log(`timeout ${jobId}`);
-        reject(new Error(`Job ${jobId} timed out`));
+        this.emitter.removeAllListeners(`${jobId}:success`);
+        this.emitter.removeAllListeners(`${jobId}:failed`);
+        reject(
+          new ExecutionError({
+            httpCode: 504,
+            code: "timeout",
+            description: `Timed out waiting for a callback for job ${jobId}.`,
+          }),
+        );
       }, timeoutMs);
 
       this.emitter.once(`${jobId}:success`, (data) => {
@@ -39,7 +48,7 @@ class CallbackRegistry {
 
   /** Rejects waiters for this job with the given error. */
   failed(jobId, error) {
-    console.log(`failed ${jobId}`);
+    if (!error?.cancelled) console.log(`failed ${jobId}`);
     this.emitter.emit(`${jobId}:failed`, error);
   }
 }

@@ -1,5 +1,6 @@
 import { join } from "path";
 import { runRecipe } from "../../models/recipe/bake.js";
+import { ExecutionError, sendExecutionError } from "../../engine/executionError.js";
 
 export async function get(req, res) {
   const recipe = req.params.recipe;
@@ -23,29 +24,53 @@ export async function get(req, res) {
  * Each process is run through the engine, and terminal results are collected
  * into a content object keyed by process ID. Returns the aggregated results.
  */
-async function fetchRecipe(uri, callback) {
+function fetchFailureDetail(err) {
+  if (!(err instanceof Error)) return String(err);
+
+  const cause = err.cause;
+  const nested = cause instanceof AggregateError ? cause.errors : [];
+  const preferred =
+    nested.find((error) => error?.address === "127.0.0.1" && error.message) ||
+    nested.find((error) => error?.message);
+  if (preferred?.message) return preferred.message;
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (cause && typeof cause === "object" && cause.code) return String(cause.code);
+  return err.message;
+}
+
+async function fetchRecipe(uri) {
+  let response;
   try {
-    const response = await fetch(uri, {
+    response = await fetch(uri, {
       headers: { accept: "application/json" },
     });
-
-    if (!response.ok) {
-      const bodyText = await response.text().catch(() => "");
-      return res.status(502).json({
-        error: "Failed to fetch recipe document.",
-        uri,
-        status: response.status,
-        statusText: response.statusText,
-        body: bodyText.slice(0, 1000),
-      });
-    }
-
-    return await response.json();
   } catch (err) {
-    return res.status(502).json({
-      error: "Error while fetching recipe document.",
-      recipeUri,
-      details: err instanceof Error ? err.message : String(err),
+    throw new ExecutionError({
+      httpCode: 502,
+      code: "Bad Gateway",
+      description: `Failed to fetch recipe document from ${uri}: ${fetchFailureDetail(err)}`,
+    });
+  }
+
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    const excerpt = bodyText ? ` ${bodyText.slice(0, 500)}` : "";
+    throw new ExecutionError({
+      httpCode: 502,
+      code: "Bad Gateway",
+      description: `Failed to fetch recipe document from ${uri} (HTTP ${response.status}${
+        response.statusText ? ` ${response.statusText}` : ""
+      }).${excerpt}`,
+    });
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new ExecutionError({
+      httpCode: 502,
+      code: "Bad Gateway",
+      description: `Recipe document at ${uri} is not valid JSON.`,
     });
   }
 }
@@ -76,14 +101,12 @@ export async function post(req, res) {
             "Missing or invalid 'recipe' field. Expected a recipe URI string.",
         });
       }
-      recipe = await fetchRecipe(recipeUri, function (err) {
-        if (err) {
-          res
-            .status(err.httpCode)
-            .json({ code: err.code, description: err.description });
-          return;
-        }
-      });
+      try {
+        recipe = await fetchRecipe(recipeUri);
+      } catch (err) {
+        sendExecutionError(res, err);
+        return;
+      }
       // first ingredients from request body, then from recipe document, default to empty object
       ingredients = req.body?.ingredients || recipe?.ingredients || {};
       break;
@@ -103,9 +126,7 @@ export async function post(req, res) {
 
   await runRecipe(recipe, ingredients, engine, function (err, content) {
     if (err) {
-      res
-        .status(err.httpCode)
-        .json({ code: err.code, description: err.description });
+      sendExecutionError(res, err);
       return;
     }
 

@@ -1,3 +1,5 @@
+import { ExecutionError } from "./executionError.js";
+
 /**
  * Extracts node IDs that this node depends on via input references.
  * Inputs use the format ":nodeId.outputs.outputName" to reference outputs from other nodes.
@@ -8,7 +10,12 @@ export function extractDependencies(node) {
   for (const value of Object.values(node.body.inputs || {})) {
     if (typeof value === "string" && value.startsWith(":")) {
       const match = value.match(/^:(.+)\.outputs\.(.+)$/);
-      if (!match) throw new Error(`Invalid reference: ${value}`);
+      if (!match)
+        throw new ExecutionError({
+          httpCode: 400,
+          code: "invalid-reference",
+          description: `Invalid reference: ${value}`,
+        });
       deps.add(match[1]);
     }
   }
@@ -29,7 +36,11 @@ export function resolveInputs(node, results) {
       const [, stepId, outputName] = value.match(/^:(.+)\.outputs\.(.+)$/);
 
       if (!results[stepId])
-        throw new Error(`Dependency '${stepId}' not resolved`);
+        throw new ExecutionError({
+          httpCode: 400,
+          code: "unresolved-dependency",
+          description: `Dependency '${stepId}' not resolved.`,
+        });
 
       resolved.inputs[key] = results[stepId][outputName];
     } else {

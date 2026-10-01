@@ -3,6 +3,7 @@ import {
   resolveInputs,
   getTerminalNodes,
 } from "./dependencyResolver.js";
+import { ExecutionError } from "./executionError.js";
 
 /**
  * Executes a DAG of nodes in topological order. Nodes with no dependencies run first;
@@ -23,7 +24,16 @@ export class DagEngine {
     for (const node of _nodes) {
       nodes.set(node.id, node);
 
-      const deps = extractDependencies(node);
+      let deps;
+      try {
+        deps = extractDependencies(node);
+      } catch (err) {
+        if (err instanceof Error) {
+          err.nodeId = err.nodeId || node.id;
+          err.processTitle = err.processTitle || node.link?.title;
+        }
+        throw err;
+      }
       dependencies.set(node.id, new Set(deps));
 
       for (const dep of deps) {
@@ -52,7 +62,16 @@ export class DagEngine {
           const execNode = { ...node, body: resolvedBody };
 
           console.log(`Executing node ${id} (${node.link.title}) with resolved body:`, resolvedBody);
-          const output = await this.processClient.execute(execNode);
+          let output;
+          try {
+            output = await this.processClient.execute(execNode);
+          } catch (err) {
+            if (err instanceof Error) {
+              err.nodeId = err.nodeId || id;
+              err.processTitle = err.processTitle || node.link?.title;
+            }
+            throw err;
+          }
 
           results[id] = output;
           executed.add(id);
@@ -66,7 +85,11 @@ export class DagEngine {
     }
 
     if (executed.size !== nodes.size)
-      throw new Error("Cycle detected or unresolved dependency");
+      throw new ExecutionError({
+        httpCode: 400,
+        code: "invalid-recipe",
+        description: "Cycle detected or unresolved dependency.",
+      });
 
     const terminalIds = getTerminalNodes(_nodes);
 

@@ -1,3 +1,5 @@
+import { ExecutionError } from "../../engine/executionError.js";
+
 // substitute ingredients in the recipe
 function changeValue(obj, ingredients) {
   if (typeof obj === "object") {
@@ -54,7 +56,27 @@ export async function runRecipe(recipe, ingredients, engine, callback) {
     console.log("-".repeat(50));
 
     // Execute the process and store the results
-    const results = await engine.execute(process.nodes);
+    let results;
+    try {
+      results = await engine.execute(process.nodes);
+    } catch (err) {
+      const error =
+        err instanceof ExecutionError
+          ? err
+          : new ExecutionError({
+              httpCode: err?.httpCode || err?.status || 500,
+              code: err?.code || err?.title || "Internal Server Error",
+              description:
+                err?.description ||
+                err?.detail ||
+                err?.message ||
+                "Recipe execution failed.",
+              nodeId: err?.nodeId,
+              processTitle: err?.processTitle,
+            });
+      error.processing = process.id;
+      return callback(error);
+    }
 
     // Store the results in the content object using the process ID as the key
     content[process.id] = results.terminalResults;

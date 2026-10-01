@@ -1,6 +1,7 @@
 import fetch from "node-fetch";
 
 import { runRecipe } from "../../models/recipe/bake.js";
+import { sendExecutionError } from "../../engine/executionError.js";
 
 /**
  * POST /recipe/execute
@@ -65,9 +66,7 @@ export async function post(req, res) {
 
   await runRecipe(recipe, ingredients, engine, function (err, content) {
     if (err) {
-      res
-        .status(err.httpCode)
-        .json({ code: err.code, description: err.description });
+      sendExecutionError(res, err);
       return;
     }
     
