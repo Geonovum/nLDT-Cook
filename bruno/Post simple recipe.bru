@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{serviceHost}}/execute
+  url: {{serviceHost}}/bake
   body: json
   auth: inherit
 }
@@ -82,13 +82,8 @@ body:json {
             },
             "body": {
               "inputs": {
-                "number1": 19,
+                "number1": 10,
                 "number2": 71
-              },
-              "outputs": {
-                "sum": {
-                  "transmissionMode": ["value"]
-                }
               }
             }
           }
