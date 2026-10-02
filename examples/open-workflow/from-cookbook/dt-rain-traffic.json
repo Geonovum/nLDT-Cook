@@ -1,0 +1,146 @@
+{
+  "type": "workflow",
+  "input": {
+    "mobilityData": 24
+  },
+  "workflow": {
+    "document": {
+      "dsl": "1.0.3",
+      "namespace": "https://nldt.geonovum.nl/cook",
+      "name": "dt-rain-traffic",
+      "version": "1.0.0",
+      "title": "Simuleer effect regen op verkeer",
+      "summary": "Deze recipe brengt neerslag, riolering, wegennet en mobiliteitsmodellen bij elkaar om te simuleren welke impact een zware bui heeft op verkeer. Het resultaat kan gebruikt worden om knelpunten te identificeren, maatregelen te testen en scenario’s door te rekenen in de digital twin.",
+      "metadata": {
+        "cook": {
+          "attribution": [
+            "Geonovum",
+            "Purple Polar Bear",
+            "Triply",
+            "Future Insight",
+            "Esri",
+            "Clappform",
+            "Nelen & Schuurmans",
+            "Goudappel",
+            "ilabs",
+            "Tygron",
+            "Imagem",
+            "Avineon Tensing",
+            "Synexis"
+          ],
+          "tags": [
+            "rain",
+            "traffic",
+            "climate"
+          ],
+          "license": "CC-BY-4.0",
+          "processing": [
+            {
+              "id": "processing1",
+              "subscriber": {
+                "successUri": ":serviceUrl/callback/:recipeId?type=success",
+                "inProgressUri": ":serviceUrl/callback/:recipeId?type=inProgress",
+                "failedUri": ":serviceUrl/callback/:recipeId?type=failed"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "do": [
+      {
+        "step1": {
+          "call": "http",
+          "with": {
+            "method": "post",
+            "endpoint": "http://localhost:8080/geonovum/v1/processes/add/execution",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "inputs": {
+                "number1": 10,
+                "number2": 7
+              }
+            }
+          },
+          "export": {
+            "as": "${ $context + { step1: . } }"
+          }
+        }
+      },
+      {
+        "step2a": {
+          "call": "http",
+          "with": {
+            "method": "post",
+            "endpoint": "http://localhost:8080/geonovum/v1/processes/multiply/execution",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "inputs": {
+                "number1": "${ $context.step1.sum }",
+                "number2": 5
+              }
+            }
+          },
+          "export": {
+            "as": "${ $context + { step2a: . } }"
+          }
+        }
+      },
+      {
+        "step2b": {
+          "call": "http",
+          "with": {
+            "method": "post",
+            "endpoint": "http://localhost:8080/geonovum/v1/processes/multiply/execution",
+            "headers": {
+              "Content-Type": "application/json",
+              "Prefer": "respond-async"
+            },
+            "body": {
+              "inputs": {
+                "number1": "${ $context.step1.sum }",
+                "number2": 6
+              },
+              "subscriber": {
+                "successUri": "http://localhost:8081/oven/v1/callback/:jobId?type=success",
+                "inProgressUri": "http://localhost:8081/oven/v1/callback/:jobId?type=inProgress",
+                "failedUri": "http://localhost:8081/oven/v1/callback/:jobId?type=failed"
+              }
+            }
+          },
+          "export": {
+            "as": "${ $context + { step2b: . } }"
+          }
+        }
+      },
+      {
+        "step3": {
+          "call": "http",
+          "with": {
+            "method": "post",
+            "endpoint": "http://localhost:8080/geonovum/v1/processes/multiply/execution",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "inputs": {
+                "number1": "${ $context.step2b.product }",
+                "number2": "${ $workflow.input.mobilityData }"
+              }
+            }
+          },
+          "export": {
+            "as": "${ $context + { step3: . } }"
+          }
+        }
+      }
+    ],
+    "output": {
+      "as": "${ { step2a: $context.step2a, step3: . } }"
+    }
+  }
+}
